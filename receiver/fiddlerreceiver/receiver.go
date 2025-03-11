@@ -199,6 +199,17 @@ func (fr *fiddlerReceiver) createQueries(ctx context.Context, modelID string, me
 	defaultBaselineName := "default_static_baseline"
 
 	for _, metric := range metrics {
+		// TODO: Skipping data_integrity metrics for any_violation_count and any_violation_percentage
+		// because there is a known issue with the Fiddler API's handling of these metrics
+		if metric.Type == "data_integrity" &&
+			(metric.ID == "any_violation_count" || metric.ID == "any_violation_percentage") {
+			fr.logger.Debug("Skipping known problematic metric",
+				zap.String("model_id", modelID),
+				zap.String("metric_id", metric.ID),
+				zap.String("metric_type", metric.Type))
+			continue
+		}
+
 		if metric.RequiresCategories {
 			continue
 		}
