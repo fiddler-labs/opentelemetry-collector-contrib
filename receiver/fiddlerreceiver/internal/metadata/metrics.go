@@ -47,15 +47,17 @@ func (b *MetricBuilder) AddMetricType(metricID, metricType string) {
 
 // AddDataPoints adds metrics data points from Fiddler API query results
 func (b *MetricBuilder) AddDataPoints(projectName string, results map[string]client.QueryResult) {
-	// Resource scope for all metrics
-	rm := b.metrics.ResourceMetrics().AppendEmpty()
-	resource := rm.Resource()
-	resource.Attributes().PutStr("service.name", "fiddler")
-	resource.Attributes().PutStr("fiddler.project", projectName)
+	// Get a resource metric for this project
+	rm := b.getOrCreateResourceMetric(projectName)
 
-	// Scope for all metrics
-	sm := rm.ScopeMetrics().AppendEmpty()
-	sm.Scope().SetName("fiddlerreceiver")
+	// Get or create scope
+	var sm pmetric.ScopeMetrics
+	if rm.ScopeMetrics().Len() > 0 {
+		sm = rm.ScopeMetrics().At(0)
+	} else {
+		sm = rm.ScopeMetrics().AppendEmpty()
+		sm.Scope().SetName("fiddlerreceiver")
+	}
 
 	// Process each query result
 	for _, result := range results {
@@ -96,6 +98,26 @@ func (b *MetricBuilder) AddDataPoints(projectName string, results map[string]cli
 			}
 		}
 	}
+}
+
+// getOrCreateResourceMetric gets an existing resource metric for the project or creates a new one
+func (b *MetricBuilder) getOrCreateResourceMetric(projectName string) pmetric.ResourceMetrics {
+	// Look for existing resource metric for this project
+	for i := 0; i < b.metrics.ResourceMetrics().Len(); i++ {
+		rm := b.metrics.ResourceMetrics().At(i)
+		projectAttr, ok := rm.Resource().Attributes().Get("fiddler.project")
+		if ok && projectAttr.Str() == projectName {
+			return rm
+		}
+	}
+
+	// Create new resource metric if not found
+	rm := b.metrics.ResourceMetrics().AppendEmpty()
+	resource := rm.Resource()
+	resource.Attributes().PutStr("service.name", "fiddler")
+	resource.Attributes().PutStr("fiddler.project", projectName)
+
+	return rm
 }
 
 // addMetricFromColumn adds a metric based on the column name and metric type

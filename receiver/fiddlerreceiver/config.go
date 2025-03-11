@@ -7,9 +7,9 @@ import (
 
 const (
 	defaultEndpoint  = "localhost:8080"
-	defaultAuthToken = ""
+	defaultAuthToken = "test-token"
 	defaultTimeout   = 5 * time.Minute
-	defaultInterval  = 30 * time.Minute
+	defaultInterval  = 5 * time.Minute
 	minimumInterval  = 5 * time.Minute
 )
 
