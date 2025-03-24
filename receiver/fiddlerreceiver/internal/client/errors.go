@@ -1,4 +1,4 @@
-package client
+package client // import "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/fiddlerreceiver/internal/client"
 
 import "fmt"
 
