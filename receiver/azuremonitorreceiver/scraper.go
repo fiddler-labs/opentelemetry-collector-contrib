@@ -14,9 +14,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v2"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -100,16 +99,12 @@ func (*timeWrapper) Now() time.Time {
 
 func newScraper(conf *Config, settings receiver.Settings) *azureScraper {
 	return &azureScraper{
-		cfg:                      conf,
-		settings:                 settings.TelemetrySettings,
-		mb:                       metadata.NewMetricsBuilder(conf.MetricsBuilderConfig, settings),
-		azDefaultCredentialsFunc: azidentity.NewDefaultAzureCredential,
-		azIDCredentialsFunc:      azidentity.NewClientSecretCredential,
-		azIDWorkloadFunc:         azidentity.NewWorkloadIdentityCredential,
-		azManagedIdentityFunc:    azidentity.NewManagedIdentityCredential,
-		mutex:                    &sync.Mutex{},
-		time:                     &timeWrapper{},
-		clientOptionsResolver:    newClientOptionsResolver(conf.Cloud),
+		cfg:                   conf,
+		settings:              settings.TelemetrySettings,
+		mb:                    metadata.NewMetricsBuilder(conf.MetricsBuilderConfig, settings),
+		mutex:                 &sync.Mutex{},
+		time:                  &timeWrapper{},
+		clientOptionsResolver: newClientOptionsResolver(conf.Cloud),
 	}
 }
 
@@ -121,21 +116,17 @@ type azureScraper struct {
 	// resources on which we'll collect metrics. Stored by resource id and subscription id.
 	resources map[string]map[string]*azureResource
 	// subscriptions on which we'll look up resources. Stored by subscription id.
-	subscriptions            map[string]*azureSubscription
-	subscriptionsUpdated     time.Time
-	mb                       *metadata.MetricsBuilder
-	azDefaultCredentialsFunc func(options *azidentity.DefaultAzureCredentialOptions) (*azidentity.DefaultAzureCredential, error)
-	azIDCredentialsFunc      func(string, string, string, *azidentity.ClientSecretCredentialOptions) (*azidentity.ClientSecretCredential, error)
-	azIDWorkloadFunc         func(options *azidentity.WorkloadIdentityCredentialOptions) (*azidentity.WorkloadIdentityCredential, error)
-	azManagedIdentityFunc    func(options *azidentity.ManagedIdentityCredentialOptions) (*azidentity.ManagedIdentityCredential, error)
+	subscriptions        map[string]*azureSubscription
+	subscriptionsUpdated time.Time
+	mb                   *metadata.MetricsBuilder
 
 	mutex                 *sync.Mutex
 	time                  timeNowIface
 	clientOptionsResolver ClientOptionsResolver
 }
 
-func (s *azureScraper) start(_ context.Context, _ component.Host) (err error) {
-	if err = s.loadCredentials(); err != nil {
+func (s *azureScraper) start(_ context.Context, host component.Host) (err error) {
+	if s.cred, err = loadCredentials(s.settings.Logger, s.cfg, host); err != nil {
 		return err
 	}
 
@@ -156,36 +147,6 @@ func (s *azureScraper) loadSubscription(sub azureSubscription) {
 func (s *azureScraper) unloadSubscription(id string) {
 	delete(s.resources, id)
 	delete(s.subscriptions, id)
-}
-
-func (s *azureScraper) loadCredentials() (err error) {
-	switch s.cfg.Authentication {
-	case defaultCredentials:
-		if s.cred, err = s.azDefaultCredentialsFunc(nil); err != nil {
-			return err
-		}
-	case servicePrincipal:
-		if s.cred, err = s.azIDCredentialsFunc(s.cfg.TenantID, s.cfg.ClientID, s.cfg.ClientSecret, nil); err != nil {
-			return err
-		}
-	case workloadIdentity:
-		if s.cred, err = s.azIDWorkloadFunc(nil); err != nil {
-			return err
-		}
-	case managedIdentity:
-		var options *azidentity.ManagedIdentityCredentialOptions
-		if s.cfg.ClientID != "" {
-			options = &azidentity.ManagedIdentityCredentialOptions{
-				ID: azidentity.ClientID(s.cfg.ClientID),
-			}
-		}
-		if s.cred, err = s.azManagedIdentityFunc(options); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unknown authentication %v", s.cfg.Authentication)
-	}
-	return nil
 }
 
 func (s *azureScraper) scrape(ctx context.Context) (pmetric.Metrics, error) {
@@ -318,6 +279,8 @@ func (s *azureScraper) getResources(ctx context.Context, subscriptionID string) 
 		Filter: &filter,
 	}
 
+	tagsFilterMap := getTagsFilterMap(s.cfg.AppendTagsAsAttributes)
+
 	pager := clientResources.NewListPager(opts)
 
 	for pager.More() {
@@ -339,7 +302,7 @@ func (s *azureScraper) getResources(ctx context.Context, subscriptionID string) 
 				}
 				s.resources[subscriptionID][*resource.ID] = &azureResource{
 					attributes:   attributes,
-					tags:         resource.Tags,
+					tags:         filterResourceTags(tagsFilterMap, resource.Tags),
 					resourceType: resource.Type,
 				}
 			}
@@ -356,7 +319,7 @@ func (s *azureScraper) getResources(ctx context.Context, subscriptionID string) 
 }
 
 func getResourceGroupFromID(id string) string {
-	s := regexp.MustCompile(`\/resourcegroups/([^\/]+)\/`)
+	s := regexp.MustCompile(`/resourcegroups/([^/]+)/`)
 	match := s.FindStringSubmatch(strings.ToLower(id))
 
 	if len(match) == 2 {
@@ -477,24 +440,23 @@ func (s *azureScraper) getResourceMetricsValues(ctx context.Context, subscriptio
 
 			for _, metric := range result.Value {
 				for _, timeseriesElement := range metric.Timeseries {
-					if timeseriesElement.Data != nil {
-						attributes := map[string]*string{}
-						for name, value := range res.attributes {
-							attributes[name] = value
-						}
-						for _, value := range timeseriesElement.Metadatavalues {
-							name := metadataPrefix + *value.Name.Value
-							attributes[name] = value.Value
-						}
-						if s.cfg.AppendTagsAsAttributes {
-							for tagName, value := range res.tags {
-								name := tagPrefix + tagName
-								attributes[name] = value
-							}
-						}
-						for _, metricValue := range timeseriesElement.Data {
-							s.processTimeseriesData(resourceID, metric, metricValue, attributes)
-						}
+					if timeseriesElement.Data == nil {
+						continue
+					}
+					attributes := map[string]*string{}
+					for name, value := range res.attributes {
+						attributes[name] = value
+					}
+					for _, value := range timeseriesElement.Metadatavalues {
+						name := metadataPrefix + *value.Name.Value
+						attributes[name] = value.Value
+					}
+					for tagName, value := range res.tags {
+						name := tagPrefix + tagName
+						attributes[name] = value
+					}
+					for _, metricValue := range timeseriesElement.Data {
+						s.processTimeseriesData(resourceID, metric, metricValue, attributes)
 					}
 				}
 			}
@@ -601,4 +563,31 @@ func mapFindInsensitive[T any](m map[string]T, key string) (T, bool) {
 
 	var got T
 	return got, false
+}
+
+// getTagsFilterMap returns a map used to filter tags.
+// Each user-configured tag key is normalized to lowercase and added to the map for case-insensitive lookup.
+func getTagsFilterMap(appendTagsAsAttributes []string) (tagsFilterMap map[string]struct{}) {
+	tagsFilterMap = make(map[string]struct{}, len(appendTagsAsAttributes))
+	for _, v := range appendTagsAsAttributes {
+		tagsFilterMap[strings.ToLower(v)] = struct{}{}
+	}
+	return tagsFilterMap
+}
+
+// filterResourceTags filter out resource tags according to configured tag list (append_tags_as_attributes)
+func filterResourceTags(tagFilterList map[string]struct{}, resourceTags map[string]*string) map[string]*string {
+	if _, includeAll := tagFilterList["*"]; includeAll {
+		return resourceTags
+	}
+
+	// wildcard not found. include only configured tags
+	includedTags := make(map[string]*string, len(resourceTags))
+	for tagName, value := range resourceTags {
+		if _, ok := tagFilterList[strings.ToLower(tagName)]; ok {
+			includedTags[tagName] = value
+		}
+	}
+
+	return includedTags
 }

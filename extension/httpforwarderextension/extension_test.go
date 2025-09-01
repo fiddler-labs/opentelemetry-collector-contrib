@@ -4,7 +4,6 @@
 package httpforwarderextension
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -132,7 +131,7 @@ func TestExtension(t *testing.T) {
 			config: &Config{
 				Egress: confighttp.ClientConfig{
 					Endpoint: "localhost:9090",
-					TLSSetting: configtls.ClientConfig{
+					TLS: configtls.ClientConfig{
 						Config: configtls.Config{
 							CAFile: "/non/existent",
 						},
@@ -201,7 +200,7 @@ func TestExtension(t *testing.T) {
 			hf, err := newHTTPForwarder(test.config, componenttest.NewNopTelemetrySettings())
 			require.NoError(t, err)
 
-			ctx := context.Background()
+			ctx := t.Context()
 			if test.startUpError {
 				err = hf.Start(ctx, componenttest.NewNopHost())
 				if test.startUpErrorMessage != "" {

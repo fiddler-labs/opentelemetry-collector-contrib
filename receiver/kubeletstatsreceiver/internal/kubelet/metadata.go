@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	conventions "go.opentelemetry.io/collector/semconv/v1.27.0"
+	conventions "go.opentelemetry.io/otel/semconv/v1.27.0"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
@@ -20,15 +20,15 @@ import (
 type MetadataLabel string
 
 // Values for MetadataLabel enum.
-const (
-	MetadataLabelContainerID MetadataLabel = conventions.AttributeContainerID
-	MetadataLabelVolumeType  MetadataLabel = labelVolumeType
-)
+const MetadataLabelVolumeType MetadataLabel = labelVolumeType
 
-var supportedLabels = map[MetadataLabel]bool{
-	MetadataLabelContainerID: true,
-	MetadataLabelVolumeType:  true,
-}
+var (
+	MetadataLabelContainerID MetadataLabel = MetadataLabel(conventions.ContainerIDKey)
+	supportedLabels                        = map[MetadataLabel]bool{
+		MetadataLabelContainerID: true,
+		MetadataLabelVolumeType:  true,
+	}
+)
 
 // ValidateMetadataLabelsConfig validates that provided list of metadata labels is supported
 func ValidateMetadataLabelsConfig(labels []MetadataLabel) error {
@@ -197,13 +197,13 @@ func (m *Metadata) setExtraResources(rb *metadata.ResourceBuilder, podRef stats.
 // getContainerID retrieves container id from metadata for given pod UID and container name,
 // returns an error if no container found in the metadata that matches the requirements
 // or if the apiServer returned a newly created container with empty containerID.
-func (m *Metadata) getContainerID(podUID string, containerName string) (string, error) {
+func (m *Metadata) getContainerID(podUID, containerName string) (string, error) {
 	uid := types.UID(podUID)
 	for _, pod := range m.PodsMetadata.Items {
 		if pod.UID == uid {
 			for _, containerStatus := range append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...) {
 				if containerName == containerStatus.Name {
-					if len(strings.TrimSpace(containerStatus.ContainerID)) == 0 {
+					if strings.TrimSpace(containerStatus.ContainerID) == "" {
 						return "", fmt.Errorf("pod %q with container %q has an empty containerID", podUID, containerName)
 					}
 					return stripContainerID(containerStatus.ContainerID), nil
@@ -222,7 +222,7 @@ func stripContainerID(id string) string {
 	return containerSchemeRegexp.ReplaceAllString(id, "")
 }
 
-func (m *Metadata) getPodVolume(podUID string, volumeName string) (v1.Volume, error) {
+func (m *Metadata) getPodVolume(podUID, volumeName string) (v1.Volume, error) {
 	for _, pod := range m.PodsMetadata.Items {
 		if pod.UID == types.UID(podUID) {
 			for _, volume := range pod.Spec.Volumes {

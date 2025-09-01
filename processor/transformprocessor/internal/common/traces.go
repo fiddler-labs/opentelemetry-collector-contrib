@@ -26,7 +26,7 @@ type traceStatements struct {
 	expr.BoolExpr[ottlspan.TransformContext]
 }
 
-func (t traceStatements) Context() ContextID {
+func (traceStatements) Context() ContextID {
 	return Span
 }
 
@@ -59,7 +59,7 @@ type spanEventStatements struct {
 	expr.BoolExpr[ottlspanevent.TransformContext]
 }
 
-func (s spanEventStatements) Context() ContextID {
+func (spanEventStatements) Context() ContextID {
 	return SpanEvent
 }
 
@@ -185,5 +185,5 @@ func (tpc *TraceParserCollection) ParseContextStatements(contextStatements Conte
 	if contextStatements.Context != "" {
 		return pc.ParseStatementsWithContext(string(contextStatements.Context), contextStatements, true)
 	}
-	return pc.ParseStatements(contextStatements)
+	return pc.ParseStatements(contextStatements, ottl.WithContextInferenceConditions(contextStatements.Conditions))
 }

@@ -4,7 +4,6 @@
 package sampling
 
 import (
-	"context"
 	"math"
 	"testing"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component/componenttest"
+	"go.opentelemetry.io/collector/featuregate"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
@@ -80,7 +80,7 @@ func TestNumericTagFilter(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.Desc, func(t *testing.T) {
 			u, _ := uuid.NewRandom()
-			decision, err := filter.Evaluate(context.Background(), pcommon.TraceID(u), c.Trace)
+			decision, err := filter.Evaluate(t.Context(), pcommon.TraceID(u), c.Trace)
 			assert.NoError(t, err)
 			assert.Equal(t, decision, c.Decision)
 		})
@@ -97,9 +97,10 @@ func TestNumericTagFilterInverted(t *testing.T) {
 	resAttr["example"] = 8
 
 	cases := []struct {
-		Desc     string
-		Trace    *TraceData
-		Decision Decision
+		Desc                  string
+		Trace                 *TraceData
+		Decision              Decision
+		DisableInvertDecision bool
 	}{
 		{
 			Desc:     "nonmatching span attribute",
@@ -146,12 +147,32 @@ func TestNumericTagFilterInverted(t *testing.T) {
 			Trace:    newTraceIntAttrs(map[string]any{"example": math.MaxInt32 + 1}, "non_matching", math.MaxInt32+1),
 			Decision: InvertSampled,
 		},
+		{
+			Desc:                  "nonmatching span attribute with DisableInvertDecision",
+			Trace:                 newTraceIntAttrs(empty, "non_matching", math.MinInt32),
+			Decision:              Sampled,
+			DisableInvertDecision: true,
+		},
+		{
+			Desc:                  "span attribute at the lower limit with DisableInvertDecision",
+			Trace:                 newTraceIntAttrs(empty, "example", math.MinInt32),
+			Decision:              NotSampled,
+			DisableInvertDecision: true,
+		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.Desc, func(t *testing.T) {
+			if c.DisableInvertDecision {
+				err := featuregate.GlobalRegistry().Set("processor.tailsamplingprocessor.disableinvertdecisions", true)
+				assert.NoError(t, err)
+				defer func() {
+					err := featuregate.GlobalRegistry().Set("processor.tailsamplingprocessor.disableinvertdecisions", false)
+					assert.NoError(t, err)
+				}()
+			}
 			u, _ := uuid.NewRandom()
-			decision, err := filter.Evaluate(context.Background(), pcommon.TraceID(u), c.Trace)
+			decision, err := filter.Evaluate(t.Context(), pcommon.TraceID(u), c.Trace)
 			assert.NoError(t, err)
 			assert.Equal(t, decision, c.Decision)
 		})
@@ -233,7 +254,7 @@ func TestNumericTagFilterOptionalBounds(t *testing.T) {
 			require.NotNil(t, filter, "filter should not be nil")
 
 			trace := newTraceIntAttrs(map[string]any{}, "example", tt.value)
-			decision, err := filter.Evaluate(context.Background(), pcommon.TraceID{}, trace)
+			decision, err := filter.Evaluate(t.Context(), pcommon.TraceID{}, trace)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, decision)
 		})

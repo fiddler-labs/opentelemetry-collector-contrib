@@ -27,7 +27,7 @@ type metricStatements struct {
 	expr.BoolExpr[ottlmetric.TransformContext]
 }
 
-func (m metricStatements) Context() ContextID {
+func (metricStatements) Context() ContextID {
 	return Metric
 }
 
@@ -60,7 +60,7 @@ type dataPointStatements struct {
 	expr.BoolExpr[ottldatapoint.TransformContext]
 }
 
-func (d dataPointStatements) Context() ContextID {
+func (dataPointStatements) Context() ContextID {
 	return DataPoint
 }
 
@@ -257,5 +257,5 @@ func (mpc *MetricParserCollection) ParseContextStatements(contextStatements Cont
 	if contextStatements.Context != "" {
 		return pc.ParseStatementsWithContext(string(contextStatements.Context), contextStatements, true)
 	}
-	return pc.ParseStatements(contextStatements)
+	return pc.ParseStatements(contextStatements, ottl.WithContextInferenceConditions(contextStatements.Conditions))
 }

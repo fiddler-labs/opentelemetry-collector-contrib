@@ -33,8 +33,11 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/datadog/hostmetadata"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/datadog/scrub"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/datadog"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/datadog/agentcomponents"
 	datadogconfig "github.com/open-telemetry/opentelemetry-collector-contrib/pkg/datadog/config"
 )
+
+var onceZorkianTracesWarning sync.Once
 
 var traceCustomHTTPFeatureGate = featuregate.GlobalRegistry().MustRegister(
 	"exporter.datadogexporter.TraceExportUseCustomHTTPClient",
@@ -91,6 +94,9 @@ func newTracesExporter(
 		go func() { errchan <- clientutil.ValidateAPIKey(ctx, string(cfg.API.Key), params.Logger, apiClient) }()
 		exp.metricsAPI = datadogV2.NewMetricsApi(apiClient)
 	} else {
+		onceZorkianTracesWarning.Do(func() {
+			exp.params.Logger.Warn("You are using the deprecated Zorkian codepath that will be removed in the next release; use the metrics serializer instead: https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/exporter/datadogexporter/README.md")
+		})
 		client := clientutil.CreateZorkianClient(string(cfg.API.Key), cfg.Metrics.Endpoint)
 		go func() { errchan <- clientutil.ValidateAPIKeyZorkian(params.Logger, client) }()
 		exp.client = client
@@ -154,7 +160,7 @@ func (exp *traceExporter) consumeTraces(
 	return nil
 }
 
-func (exp *traceExporter) exportUsageMetrics(ctx context.Context, hosts map[string]struct{}, tags map[string]struct{}) {
+func (exp *traceExporter) exportUsageMetrics(ctx context.Context, hosts, tags map[string]struct{}) {
 	now := pcommon.NewTimestampFromTime(time.Now())
 	buildTags := metrics.TagsFromBuildInfo(exp.params.BuildInfo)
 	var err error
@@ -180,6 +186,9 @@ func (exp *traceExporter) exportUsageMetrics(ctx context.Context, hosts map[stri
 			return clientutil.WrapError(merr, httpresp)
 		})
 	} else {
+		onceZorkianTracesWarning.Do(func() {
+			exp.params.Logger.Warn("You are using the deprecated Zorkian codepath that will be removed in the next release; use the metrics serializer instead: https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/exporter/datadogexporter/README.md")
+		})
 		series := make([]zorkian.Metric, 0, len(hosts)+len(tags))
 		for host := range hosts {
 			series = append(series, metrics.DefaultZorkianMetrics("traces", host, uint64(now), exp.params.BuildInfo)...)
@@ -224,7 +233,7 @@ func newTraceAgentConfig(ctx context.Context, params exporter.Settings, cfg *dat
 	acfg.Ignore["resource"] = cfg.Traces.IgnoreResources
 	acfg.ReceiverEnabled = false // disable HTTP receiver
 	acfg.AgentVersion = fmt.Sprintf("datadogexporter-%s-%s", params.BuildInfo.Command, params.BuildInfo.Version)
-	acfg.SkipSSLValidation = cfg.TLSSetting.InsecureSkipVerify
+	acfg.SkipSSLValidation = cfg.TLS.InsecureSkipVerify
 	acfg.ComputeStatsBySpanKind = cfg.Traces.ComputeStatsBySpanKind
 	acfg.PeerTagsAggregation = cfg.Traces.PeerTagsAggregation
 	acfg.PeerTags = cfg.Traces.PeerTags
@@ -235,10 +244,8 @@ func newTraceAgentConfig(ctx context.Context, params exporter.Settings, cfg *dat
 			return clientutil.NewHTTPClient(cfg.ClientConfig)
 		}
 	}
-	if datadog.OperationAndResourceNameV2FeatureGate.IsEnabled() {
-		acfg.Features["enable_operation_and_resource_name_logic_v2"] = struct{}{}
-	} else {
-		params.Logger.Info("Please enable feature gate datadog.EnableOperationAndResourceNameV2 for improved operation and resource name logic. This feature will be enabled by default in the future - if you have Datadog monitors or alerts set on operation/resource names, you may need to migrate them to the new convention.")
+	if !datadog.OperationAndResourceNameV2FeatureGate.IsEnabled() {
+		acfg.Features["disable_operation_and_resource_name_logic_v2"] = struct{}{}
 	}
 	if v := cfg.Traces.GetFlushInterval(); v > 0 {
 		acfg.TraceWriter.FlushPeriodSeconds = v
@@ -255,6 +262,6 @@ func newTraceAgentConfig(ctx context.Context, params exporter.Settings, cfg *dat
 	if !datadog.ReceiveResourceSpansV2FeatureGate.IsEnabled() {
 		acfg.Features["disable_receive_resource_spans_v2"] = struct{}{}
 	}
-	tracelog.SetLogger(&datadog.Zaplogger{Logger: params.Logger}) // TODO: This shouldn't be a singleton
+	tracelog.SetLogger(&agentcomponents.ZapLogger{Logger: params.Logger}) // TODO: This shouldn't be a singleton
 	return acfg, nil
 }

@@ -25,7 +25,7 @@ type logStatements struct {
 	expr.BoolExpr[ottllog.TransformContext]
 }
 
-func (l logStatements) Context() ContextID {
+func (logStatements) Context() ContextID {
 	return Log
 }
 
@@ -116,5 +116,5 @@ func (lpc *LogParserCollection) ParseContextStatements(contextStatements Context
 	if contextStatements.Context != "" {
 		return pc.ParseStatementsWithContext(string(contextStatements.Context), contextStatements, true)
 	}
-	return pc.ParseStatements(contextStatements)
+	return pc.ParseStatements(contextStatements, ottl.WithContextInferenceConditions(contextStatements.Conditions))
 }

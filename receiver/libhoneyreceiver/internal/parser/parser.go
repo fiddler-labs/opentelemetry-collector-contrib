@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	semconv "go.opentelemetry.io/collector/semconv/v1.16.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.16.0"
 	trc "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -52,16 +52,16 @@ func ToPdata(dataset string, lhes []libhoneyevent.LibhoneyEvent, cfg libhoneyeve
 	} // seed a default
 
 	alreadyUsedFields := []string{cfg.Resources.ServiceName, cfg.Scopes.LibraryName, cfg.Scopes.LibraryVersion}
-	alreadyUsedFields = append(alreadyUsedFields, cfg.Attributes.Name,
+	alreadyUsedTraceFields := []string{
+		cfg.Attributes.Name,
 		cfg.Attributes.TraceID, cfg.Attributes.ParentID, cfg.Attributes.SpanID,
 		cfg.Attributes.Error, cfg.Attributes.SpanKind,
-	)
-	alreadyUsedFields = append(alreadyUsedFields, cfg.Attributes.DurationFields...)
+	}
 
 	for _, lhe := range lhes {
 		parentID, err := lhe.GetParentID(cfg.Attributes.ParentID)
 		if err != nil {
-			logger.Warn("parent id not found")
+			logger.Debug("parent id not found")
 		}
 
 		action := lhe.SignalType(logger)
@@ -70,6 +70,8 @@ func ToPdata(dataset string, lhes []libhoneyevent.LibhoneyEvent, cfg libhoneyeve
 			spanService, _ := lhe.GetService(cfg, &foundServices, dataset)
 			spanScopeKey, _ := lhe.GetScope(cfg, &foundScopes, spanService) // adds a new found scope if needed
 			newSpan := foundScopes.Scope[spanScopeKey].ScopeSpans.AppendEmpty()
+			alreadyUsedFields = append(alreadyUsedFields, alreadyUsedTraceFields...)
+			alreadyUsedFields = append(alreadyUsedFields, cfg.Attributes.DurationFields...)
 			err := lhe.ToPTraceSpan(&newSpan, &alreadyUsedFields, cfg, logger)
 			if err != nil {
 				logger.Warn("span could not be converted from libhoney to ptrace", zap.String("span.object", lhe.DebugString()))
@@ -113,7 +115,7 @@ func ToPdata(dataset string, lhes []libhoneyevent.LibhoneyEvent, cfg libhoneyeve
 		if ss.ScopeLogs.Len() > 0 {
 			lr := resultLogs.ResourceLogs().AppendEmpty()
 			lr.SetSchemaUrl(semconv.SchemaURL)
-			lr.Resource().Attributes().PutStr(semconv.AttributeServiceName, ss.ServiceName)
+			lr.Resource().Attributes().PutStr(string(semconv.ServiceNameKey), ss.ServiceName)
 
 			ls := lr.ScopeLogs().AppendEmpty()
 			ls.Scope().SetName(ss.LibraryName)
@@ -123,7 +125,7 @@ func ToPdata(dataset string, lhes []libhoneyevent.LibhoneyEvent, cfg libhoneyeve
 		if ss.ScopeSpans.Len() > 0 {
 			tr := resultTraces.ResourceSpans().AppendEmpty()
 			tr.SetSchemaUrl(semconv.SchemaURL)
-			tr.Resource().Attributes().PutStr(semconv.AttributeServiceName, ss.ServiceName)
+			tr.Resource().Attributes().PutStr(string(semconv.ServiceNameKey), ss.ServiceName)
 
 			ts := tr.ScopeSpans().AppendEmpty()
 			ts.Scope().SetName(ss.LibraryName)
@@ -160,7 +162,7 @@ func addSpanEventsToSpan(sp ptrace.Span, events []libhoneyevent.LibhoneyEvent, a
 			case bool:
 				newEvent.Attributes().PutBool(lkey, lval)
 			default:
-				logger.Warn("SpanEvent data type issue",
+				logger.Debug("SpanEvent data type issue",
 					zap.String("trace.trace_id", sp.TraceID().String()),
 					zap.String("trace.span_id", sp.SpanID().String()),
 					zap.String("key", lkey))
@@ -176,17 +178,23 @@ func addSpanLinksToSpan(sp ptrace.Span, links []libhoneyevent.LibhoneyEvent, alr
 		if linkTraceStr, ok := spl.Data["trace.link.trace_id"]; ok {
 			tidByteArray, err := hex.DecodeString(linkTraceStr.(string))
 			if err != nil {
-				logger.Warn("span link invalid",
+				logger.Debug("span link invalid",
 					zap.String("missing.attribute", "trace.link.trace_id"),
 					zap.String("span link contents", spl.DebugString()))
 				continue
 			}
-			if len(tidByteArray) >= 32 {
-				tidByteArray = tidByteArray[0:32]
+			if len(tidByteArray) != 16 {
+				logger.Debug("span link trace ID wrong length",
+					zap.Int("length", len(tidByteArray)),
+					zap.String("span link contents", spl.DebugString()))
+				continue
 			}
-			newLink.SetTraceID(pcommon.TraceID(tidByteArray))
+			// Convert slice to [16]byte array
+			var traceIDArray [16]byte
+			copy(traceIDArray[:], tidByteArray)
+			newLink.SetTraceID(pcommon.TraceID(traceIDArray))
 		} else {
-			logger.Warn("span link missing attributes",
+			logger.Debug("span link missing attributes",
 				zap.String("missing.attribute", "trace.link.trace_id"),
 				zap.String("span link contents", spl.DebugString()))
 			continue
@@ -195,17 +203,23 @@ func addSpanLinksToSpan(sp ptrace.Span, links []libhoneyevent.LibhoneyEvent, alr
 		if linkSpanStr, ok := spl.Data["trace.link.span_id"]; ok {
 			sidByteArray, err := hex.DecodeString(linkSpanStr.(string))
 			if err != nil {
-				logger.Warn("span link invalid",
+				logger.Debug("span link invalid",
 					zap.String("missing.attribute", "trace.link.span_id"),
 					zap.String("span link contents", spl.DebugString()))
 				continue
 			}
-			if len(sidByteArray) >= 16 {
-				sidByteArray = sidByteArray[0:16]
+			if len(sidByteArray) != 8 {
+				logger.Debug("span link span ID wrong length",
+					zap.Int("length", len(sidByteArray)),
+					zap.String("span link contents", spl.DebugString()))
+				continue
 			}
-			newLink.SetSpanID(pcommon.SpanID(sidByteArray))
+			// Convert slice to [8]byte array
+			var spanIDArray [8]byte
+			copy(spanIDArray[:], sidByteArray)
+			newLink.SetSpanID(pcommon.SpanID(spanIDArray))
 		} else {
-			logger.Warn("span link missing attributes",
+			logger.Debug("span link missing attributes",
 				zap.String("missing.attribute", "trace.link.span_id"),
 				zap.String("span link contents", spl.DebugString()))
 			continue
@@ -234,7 +248,7 @@ func addSpanLinksToSpan(sp ptrace.Span, links []libhoneyevent.LibhoneyEvent, alr
 			case bool:
 				newLink.Attributes().PutBool(lkey, lval)
 			default:
-				logger.Warn("SpanLink data type issue",
+				logger.Debug("SpanLink data type issue",
 					zap.String("trace.trace_id", sp.TraceID().String()),
 					zap.String("trace.span_id", sp.SpanID().String()),
 					zap.String("key", lkey))

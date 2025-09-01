@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
-	conventions "go.opentelemetry.io/collector/semconv/v1.6.1"
+	conventions "go.opentelemetry.io/otel/semconv/v1.6.1"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 
@@ -71,16 +71,31 @@ func RecordSpecMetrics(logger *zap.Logger, mb *metadata.MetricsBuilder, c corev1
 	var containerID string
 	var imageStr string
 	for _, cs := range pod.Status.ContainerStatuses {
-		if cs.Name == c.Name {
-			containerID = cs.ContainerID
-			imageStr = cs.Image
-			mb.RecordK8sContainerRestartsDataPoint(ts, int64(cs.RestartCount))
-			mb.RecordK8sContainerReadyDataPoint(ts, boolToInt64(cs.Ready))
-			if cs.LastTerminationState.Terminated != nil {
-				rb.SetK8sContainerStatusLastTerminatedReason(cs.LastTerminationState.Terminated.Reason)
-			}
-			break
+		if cs.Name != c.Name {
+			continue
 		}
+		containerID = cs.ContainerID
+		imageStr = cs.Image
+		mb.RecordK8sContainerRestartsDataPoint(ts, int64(cs.RestartCount))
+		mb.RecordK8sContainerReadyDataPoint(ts, boolToInt64(cs.Ready))
+		if cs.LastTerminationState.Terminated != nil {
+			rb.SetK8sContainerStatusLastTerminatedReason(cs.LastTerminationState.Terminated.Reason)
+		}
+		switch {
+		case cs.State.Running != nil:
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 1, metadata.AttributeK8sContainerStatusStateRunning)
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 0, metadata.AttributeK8sContainerStatusStateWaiting)
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 0, metadata.AttributeK8sContainerStatusStateTerminated)
+		case cs.State.Terminated != nil:
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 0, metadata.AttributeK8sContainerStatusStateRunning)
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 0, metadata.AttributeK8sContainerStatusStateWaiting)
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 1, metadata.AttributeK8sContainerStatusStateTerminated)
+		case cs.State.Waiting != nil:
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 0, metadata.AttributeK8sContainerStatusStateRunning)
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 1, metadata.AttributeK8sContainerStatusStateWaiting)
+			mb.RecordK8sContainerStatusStateDataPoint(ts, 0, metadata.AttributeK8sContainerStatusStateTerminated)
+		}
+		break
 	}
 
 	rb.SetK8sPodUID(string(pod.UID))
@@ -138,7 +153,7 @@ func GetMetadata(pod *corev1.Pod, cs corev1.ContainerStatus, logger *zap.Logger)
 
 	return &metadata.KubernetesMetadata{
 		EntityType:    "container",
-		ResourceIDKey: conventions.AttributeContainerID,
+		ResourceIDKey: string(conventions.ContainerIDKey),
 		ResourceID:    metadataPkg.ResourceID(utils.StripContainerID(cs.ContainerID)),
 		Metadata:      mdata,
 	}

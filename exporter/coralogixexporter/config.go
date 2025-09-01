@@ -6,6 +6,7 @@ package coralogixexporter // import "github.com/open-telemetry/opentelemetry-col
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/collector/config/configgrpc"
 	"go.opentelemetry.io/collector/config/configopaque"
@@ -29,11 +30,6 @@ type Config struct {
 	Domain string `mapstructure:"domain"`
 	// GRPC Settings used with Domain
 	DomainSettings configgrpc.ClientConfig `mapstructure:"domain_settings"`
-
-	// Deprecated: [v0.60.0] Coralogix jaeger based trace endpoint
-	// will be removed in the next version
-	// Please use OTLP endpoint using traces.endpoint
-	configgrpc.ClientConfig `mapstructure:",squash"`
 
 	// Coralogix traces ingress endpoint
 	Traces configgrpc.ClientConfig `mapstructure:"traces"`
@@ -60,10 +56,13 @@ type Config struct {
 	AppName   string `mapstructure:"application_name"`
 	SubSystem string `mapstructure:"subsystem_name"`
 
-	// Reference:
-	// 	https://github.com/open-telemetry/opentelemetry-collector/issues/8122
-	// Deprecated: [v0.124.0] use QueueSettings settings instead.
-	BatcherConfig exporterhelper.BatcherConfig `mapstructure:"batcher"` //nolint:staticcheck
+	RateLimiter RateLimiterConfig `mapstructure:"rate_limiter"`
+}
+
+type RateLimiterConfig struct {
+	Enabled   bool          `mapstructure:"enabled"`
+	Threshold int           `mapstructure:"threshold"`
+	Duration  time.Duration `mapstructure:"duration"`
 }
 
 func isEmpty(endpoint string) bool {
@@ -89,11 +88,14 @@ func (c *Config) Validate() error {
 		return errors.New("`application_name` not specified, please fix the configuration")
 	}
 
-	if len(c.Headers) == 0 {
-		c.Headers = make(map[string]configopaque.String)
+	if c.RateLimiter.Enabled {
+		if c.RateLimiter.Threshold <= 0 {
+			return errors.New("`rate_limiter.threshold` must be greater than 0")
+		}
+		if c.RateLimiter.Duration <= 0 {
+			return errors.New("`rate_limiter.duration` must be greater than 0")
+		}
 	}
-	c.Headers["ACCESS_TOKEN"] = c.PrivateKey
-	c.Headers["appName"] = configopaque.String(c.AppName)
 	return nil
 }
 

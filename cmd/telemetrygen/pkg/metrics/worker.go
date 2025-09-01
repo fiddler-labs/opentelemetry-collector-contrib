@@ -15,6 +15,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+
+	types "github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen/pkg"
 )
 
 type worker struct {
@@ -24,11 +26,13 @@ type worker struct {
 	aggregationTemporality AggregationTemporality       // Temporality type to use
 	exemplars              []metricdata.Exemplar[int64] // exemplars to attach to the metric
 	numMetrics             int                          // how many metrics the worker has to generate (only when duration==0)
-	totalDuration          time.Duration                // how long to run the test for (overrides `numMetrics`)
+	enforceUnique          bool                         // if true, the worker will generate unique timeseries
+	totalDuration          types.DurationWithInf        // how long to run the test for (overrides `numMetrics`)
 	limitPerSecond         rate.Limit                   // how many metrics per second to generate
 	wg                     *sync.WaitGroup              // notify when done
 	logger                 *zap.Logger                  // logger
 	index                  int                          // worker index
+	clock                  Clock                        // clock
 }
 
 // We use a 15-element bounds slice for histograms below, so there must be 16 buckets here.
@@ -81,16 +85,20 @@ var histogramBucketSamples = []struct {
 	},
 }
 
-func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Exporter, signalAttrs []attribute.KeyValue) {
+func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Exporter, signalAttrs []attribute.KeyValue, tb *timeBox) {
 	limiter := rate.NewLimiter(w.limitPerSecond, 1)
 
-	startTime := time.Now()
+	startTime := w.clock.Now()
 
 	var i int64
 	for w.running.Load() {
+		if w.enforceUnique {
+			signalAttrs = append(signalAttrs, tb.getAttribute())
+		}
 		var metrics []metricdata.Metrics
+		now := w.clock.Now()
 		if w.aggregationTemporality.AsTemporality() == metricdata.DeltaTemporality {
-			startTime = time.Now().Add(-1 * time.Second)
+			startTime = now.Add(-1 * time.Second)
 		}
 		switch w.metricType {
 		case MetricTypeGauge:
@@ -99,7 +107,7 @@ func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Expor
 				Data: metricdata.Gauge[int64]{
 					DataPoints: []metricdata.DataPoint[int64]{
 						{
-							Time:       time.Now(),
+							Time:       now,
 							Value:      i,
 							Attributes: attribute.NewSet(signalAttrs...),
 							Exemplars:  w.exemplars,
@@ -116,7 +124,7 @@ func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Expor
 					DataPoints: []metricdata.DataPoint[int64]{
 						{
 							StartTime:  startTime,
-							Time:       time.Now(),
+							Time:       now,
 							Value:      i,
 							Attributes: attribute.NewSet(signalAttrs...),
 							Exemplars:  w.exemplars,
@@ -139,7 +147,7 @@ func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Expor
 					DataPoints: []metricdata.HistogramDataPoint[int64]{
 						{
 							StartTime:  startTime,
-							Time:       time.Now(),
+							Time:       now,
 							Attributes: attribute.NewSet(signalAttrs...),
 							Exemplars:  w.exemplars,
 							Count:      totalCount,

@@ -6,6 +6,7 @@
 | Stability     | [alpha]: traces, metrics, logs   |
 | Distributions | [contrib] |
 | Issues        | [![Open issues](https://img.shields.io/github/issues-search/open-telemetry/opentelemetry-collector-contrib?query=is%3Aissue%20is%3Aopen%20label%3Aexporter%2Fazureblob%20&label=open&color=orange&logo=opentelemetry)](https://github.com/open-telemetry/opentelemetry-collector-contrib/issues?q=is%3Aopen+is%3Aissue+label%3Aexporter%2Fazureblob) [![Closed issues](https://img.shields.io/github/issues-search/open-telemetry/opentelemetry-collector-contrib?query=is%3Aissue%20is%3Aclosed%20label%3Aexporter%2Fazureblob%20&label=closed&color=blue&logo=opentelemetry)](https://github.com/open-telemetry/opentelemetry-collector-contrib/issues?q=is%3Aclosed+is%3Aissue+label%3Aexporter%2Fazureblob) |
+| Code coverage | [![codecov](https://codecov.io/github/open-telemetry/opentelemetry-collector-contrib/graph/main/badge.svg?component=exporter_azureblob)](https://app.codecov.io/gh/open-telemetry/opentelemetry-collector-contrib/tree/main/?components%5B0%5D=exporter_azureblob&displayType=list) |
 | [Code Owners](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/CONTRIBUTING.md#becoming-a-code-owner)    | [@hgaol](https://www.github.com/hgaol), [@MovieStoreGuy](https://www.github.com/MovieStoreGuy) |
 
 [alpha]: https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/component-stability.md#alpha
@@ -18,11 +19,12 @@ The following settings are required:
 
 - url: Must be specified if auth type is not connection_string. If auth type is connection_string, it's optional or will be override by the auth.connection_string. Azure storage account endpoint. This setting might be replaced with `endpoint` for future. e.g. https://<account-name>.blob.core.windows.net/
 - auth (no default): Authentication method for exporter to ingest data.
-  - type (no default): Authentication type for expoter. supported values are: connection_string, service_principal, system_managed_identity, user_managed_identity and etc.
-  - tenand_id: Tenand Id for the client, only needed when type is service_principal.
-  - client_id: Client Id for the auth, only needed when type is service_principal and user_managed_identity.
+  - type (no default): Authentication type for exporter. supported values are: connection_string, service_principal, system_managed_identity, user_managed_identity and workload_identity.
+  - tenand_id: Tenand Id for the client, only needed when type is service_principal and workload_identity.
+  - client_id: Client Id for the auth, only needed when type is service_principal, user_managed_identity and workload_identity.
   - client_secret: Secret for the client, only needed when type is service_principal.
   - connection_string: Connection string to the endpoint. Only needed for connection_string auth type. Once provided, it'll **override** the `url` parameter to the storage account.
+  - federated_token_file: The path of the projected service account token file, only needed when type is workload_identity.
 
 
 The following settings can be optionally configured and have default values:
@@ -36,6 +38,7 @@ The following settings can be optionally configured and have default values:
   - logs_format (default `2006/01/02/logs_15_04_05.json`): blob name format.
   - traces_format (default `2006/01/02/traces_15_04_05.json`): blob name format.
   - serial_num_range (default `10000`): a range of random number to be appended after blob_name. e.g. `blob_name_{serial_num}`.
+  - serial_num_before_extension (default `false`): places the serial number before the file extension if there is one. e.g `blob_name_{serial_num}.json` instead of `blob_name.json_{serial_num}`
 - format (default `json`): `json` or `proto`. which present otel json or otel protobuf format, the file extension will be `json` or `pb`.
 - encodings (default using encoding specified in `format`, which is `json`): if specified, uses the encoding extension to encode telemetry data. Overrides format.
   - logs (default `nil`): encoding component id.

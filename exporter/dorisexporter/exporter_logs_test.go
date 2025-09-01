@@ -4,7 +4,6 @@
 package dorisexporter // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/dorisexporter"
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,7 +15,7 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
-	semconv "go.opentelemetry.io/collector/semconv/v1.25.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +33,7 @@ func TestPushLogData(t *testing.T) {
 	logger := zap.NewNop()
 	exporter := newLogsExporter(logger, config, componenttest.NewNopTelemetrySettings())
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	client, err := createDorisHTTPClient(ctx, config, nil, componenttest.NewNopTelemetrySettings())
 	require.NoError(t, err)
@@ -86,7 +85,7 @@ func simpleLogs(count int) plog.Logs {
 		r.SetSeverityNumber(plog.SeverityNumberError2)
 		r.SetSeverityText("error")
 		r.Body().SetStr("error message")
-		r.Attributes().PutStr(semconv.AttributeServiceNamespace, "default")
+		r.Attributes().PutStr(string(semconv.ServiceNamespaceKey), "default")
 		r.SetFlags(plog.DefaultLogRecordFlags)
 		r.SetTraceID([16]byte{1, 2, 3, byte(i)})
 		r.SetSpanID([8]byte{1, 2, 3, byte(i)})
