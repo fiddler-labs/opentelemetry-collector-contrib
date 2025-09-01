@@ -26,7 +26,7 @@ import (
 
 func TestNewReceiver(t *testing.T) {
 	consumer := consumertest.NewNop()
-	settings := receivertest.NewNopSettings(typeStr)
+	settings := receivertest.NewNopSettings()
 	fr := newFiddlerReceiver(&Config{
 		Endpoint: defaultEndpoint,
 		Token:    defaultAuthToken,
@@ -72,7 +72,7 @@ func TestStartAndShutdown(t *testing.T) {
 		Timeout:  defaultTimeout,
 	}
 	consumer := consumertest.NewNop()
-	settings := receivertest.NewNopSettings(typeStr)
+	settings := receivertest.NewNopSettings()
 	fr := newFiddlerReceiver(config, consumer, settings)
 
 	// Test start
@@ -503,7 +503,7 @@ func TestCollect(t *testing.T) {
 	}
 	sink := new(consumertest.MetricsSink)
 	logger := zap.NewNop()
-	settings := receivertest.NewNopSettings(typeStr)
+	settings := receivertest.NewNopSettings()
 	settings.Logger = logger
 	fr := newFiddlerReceiver(config, sink, settings)
 
