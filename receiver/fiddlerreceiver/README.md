@@ -22,7 +22,13 @@ The following settings are required:
 - `token`: Your authorization token from the Fiddler Settings page under the Credentials tab.
 
 The following settings are optional:
-- `interval`: The interval at which metrics data is pulled from Fiddler (default: `30m`).
+- `interval`: The interval at which metrics data is pulled from Fiddler (default: 30m).
+- `enabled_metric_types`: The list of metric types to collect. Valid values are: (default: all metric types)
+  - `drift`
+  - `traffic`
+  - `performance`
+  - `statistic`
+  - `service_metrics`
 
 ### Example Configuration
 
@@ -32,4 +38,10 @@ receivers:
     endpoint: https://api.fiddler.ai
     token: "your_authorization_token"
     interval: "30m"
+    enabled_metric_types:
+      - drift
+      - traffic
+      - performance
+      - statistic
+      - service_metrics
 ```

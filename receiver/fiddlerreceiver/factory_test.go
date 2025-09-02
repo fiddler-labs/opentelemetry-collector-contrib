@@ -27,13 +27,13 @@ func TestFactoryCreateDefaultConfig(t *testing.T) {
 func TestCreateReceiver_Factory(t *testing.T) {
 	factory := NewFactory()
 	cfg := factory.CreateDefaultConfig().(*Config)
-	cfg.Endpoint = "https://api.fiddler.ai"
-	cfg.Token = "test-token"
-
+	cfg.Endpoint = defaultEndpoint
+	cfg.Token = defaultAuthToken
+	cfg.EnabledMetricTypes = defaultEnabledMetricTypes
 	consumer := consumertest.NewNop()
 	receiver, err := factory.CreateMetrics(
 		context.Background(),
-		receivertest.NewNopSettings(factory.Type()),
+		receivertest.NewNopSettings(),
 		cfg,
 		consumer,
 	)

@@ -1,7 +1,15 @@
-   type: fiddler
-   status:
-     class: receiver
-     stability:
-       development: [metrics]
-     codeowners:
-       active: [samikshan-fiddler]
+type: fiddler
+
+status:
+  class: receiver
+  stability:
+    development: [metrics]
+  codeowners:
+    active: [samikshan-fiddler]
+
+tests:
+  config:
+    endpoint: "localhost:8080"
+    token: "test-token"
+    timeout: 5m
+    interval: 30m  
