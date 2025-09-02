@@ -60,6 +60,7 @@ func (fr *fiddlerReceiver) Start(ctx context.Context, host component.Host) error
 	fr.logger.Info("Starting Fiddler metrics receiver",
 		zap.String("endpoint", fr.config.Endpoint),
 		zap.Duration("interval", fr.config.Interval),
+		zap.Duration("offset", fr.config.Offset),
 		zap.Strings("enabled_metric_types", fr.config.EnabledMetricTypes),
 	)
 
@@ -158,7 +159,7 @@ func (fr *fiddlerReceiver) collect(ctx context.Context) error {
 
 		// Calculate time range for query
 		endTime := time.Now()
-		startTime := endTime.Add(-defaultBinSize)
+		startTime := endTime.Add(-fr.config.Offset)
 
 		// Prepare query request
 		request := client.QueryRequest{}

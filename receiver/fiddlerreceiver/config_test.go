@@ -69,6 +69,21 @@ func TestValidateConfig(t *testing.T) {
 			updateFunc:  func(cfg *Config) { cfg.Timeout = -1 * time.Second },
 			expectedErr: "timeout must be greater than 0",
 		},
+		{
+			desc:        "offset too long",
+			updateFunc:  func(cfg *Config) { cfg.Offset = 49 * time.Hour },
+			expectedErr: fmt.Sprintf("offset must be no more than %d hours", int(maximumOffset/time.Hour)),
+		},
+		{
+			desc:        "offset missing",
+			updateFunc:  func(cfg *Config) {},
+			expectedErr: "",
+		},
+		{
+			desc:        "offset valid",
+			updateFunc:  func(cfg *Config) { cfg.Offset = 2 * time.Hour },
+			expectedErr: "",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -93,4 +108,30 @@ func TestValidateConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadConfig_MissingOffset(t *testing.T) {
+	// given a user has provided a configuration for the Fiddler receiver
+	// and that configuration specifies a valid `endpoint` and `token`
+	// but the configuration does not specify an `offset` value
+	factory := NewFactory()
+	cfg := factory.CreateDefaultConfig()
+	configMap := map[string]any{
+		"endpoint": "https://app.fiddler.ai",
+		"token":    "test-token",
+	}
+	conf := confmap.NewFromStringMap(configMap)
+
+	// when the collector loads and validates this configuration
+	err := conf.Unmarshal(&cfg)
+	require.NoError(t, err)
+	fiddlerCfg, ok := cfg.(*Config)
+	require.True(t, ok)
+	err = fiddlerCfg.Validate()
+
+	// then the final configuration should be considered valid
+	require.NoError(t, err)
+
+	// and the `offset` value should be automatically set to the default
+	assert.Equal(t, defaultOffset, fiddlerCfg.Offset)
 }

@@ -14,6 +14,8 @@ const (
 	defaultTimeout   = 5 * time.Minute
 	defaultInterval  = 5 * time.Minute
 	minimumInterval  = 5 * time.Minute
+	defaultOffset    = 1 * time.Hour
+	maximumOffset    = 48 * time.Hour
 )
 
 var defaultEnabledMetricTypes = []string{"drift", "traffic", "performance", "statistic", "service_metrics"}
@@ -34,6 +36,9 @@ type Config struct {
 
 	// EnabledMetricTypes is the list of metric types to collect
 	EnabledMetricTypes []string `mapstructure:"enabled_metric_types"`
+
+	// Offset (in hours) for calculating start time for metrics collection
+	Offset time.Duration `mapstructure:"offset"`
 }
 
 func (cfg *Config) Validate() error {
@@ -47,7 +52,6 @@ func (cfg *Config) Validate() error {
 
 	if cfg.Interval == 0 {
 		cfg.Interval = defaultInterval
-		return nil
 	}
 
 	if cfg.Interval < minimumInterval {
@@ -56,6 +60,14 @@ func (cfg *Config) Validate() error {
 
 	if cfg.Timeout <= 0 {
 		return fmt.Errorf("timeout must be greater than 0")
+	}
+
+	if cfg.Offset == 0 {
+		cfg.Offset = defaultOffset
+	}
+
+	if cfg.Offset > maximumOffset {
+		return fmt.Errorf("offset must be no more than %d hours", int(maximumOffset/time.Hour))
 	}
 
 	return nil
